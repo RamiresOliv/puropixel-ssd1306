@@ -51,7 +51,7 @@ void puroPixel_SSD1306::clear() {
 }
 
 /*!
-@brief load the current buffer to your display. You call this function after a draw or a clear function. For example: drawPixel(...); update() // loads buffer
+@brief load the current buffer to your display. You call this function after a draw or a clear function. For example: drawPixel(...); update(); // loads buffer
 */
 void puroPixel_SSD1306::update() {
     transmit_command(SSD1306_PAGEADDR);
@@ -312,68 +312,76 @@ void puroPixel_SSD1306::drawFillRect(int16_t x, int16_t y, int16_t h, int16_t w,
     the scale of the font. 1 = 1x, 2 = 2x, 3 = 3x, etc. Default is 1.
 @param color
     defines the pixels state, 1 = on, 0 = off.
+@param textBg
+    text should have background? true or false (default is false)
+@param textWrap
+    defines if text breaks line if not fits. true or false (default is true)
 @note   the string is not centered, you have to do it manually. The function will return the offset of the string, so you can use it to center it.
 */
-stringPos puroPixel_SSD1306::drawString(int16_t x, int16_t y, const char* str, uint8_t scale, uint16_t color) {
+stringPos puroPixel_SSD1306::drawString(int16_t x, int16_t y, const char* str, uint8_t scale, uint16_t color, bool textBg, bool textWrap) {
     int xOffset = 0;
     int yOffset = 0;
-    bool justChangedLine = false;
+    int screenWidth = 128;
+    int charWidth = 6 * scale;
+    int charHeight = 8 * scale;
 
-    for (int i = 0; i < strlen(str); i++) {
+    for (int i = 0; str[i] != '\0'; i++) {
         char character = str[i];
+
+        // Quebra de linha manual
+        if (character == '\n') {
+            xOffset = 0;
+            yOffset += charHeight;
+            continue;
+        }
+
+        // Ignora caracteres inválidos
+        if (character < 0x20 || character > 0x7F) continue;
+
+        // Verifica quebra automática de linha
+        if (textWrap && (xOffset + charWidth > screenWidth)) {
+            xOffset = 0;
+            yOffset += charHeight;
+        }
+
         const char* charF = ASCII[character - 0x20];
 
-        for (int cx = 0; cx < 5; cx++) {
-            for (int j = 0; j < 7; j++) {
-                uint8_t pixel = (charF[cx] >> j) & 1;
-                if (pixel == 1) {
+        // Desenha fundo com borda, se ativado
+        if (textBg) {
+            for (int cx = -1; cx <= 5; cx++) {
+                for (int j = -1; j <= 7; j++) {
                     for (int dx = 0; dx < scale; dx++) {
                         for (int dy = 0; dy < scale; dy++) {
-                            drawPixel(
-                                (cx * scale + dx + xOffset + x),
-                                (j * scale + dy + yOffset + y),
-                                color
-                            );
+                            int16_t px = x + xOffset + (cx * scale) + dx;
+                            int16_t py = y + yOffset + (j * scale) + dy;
+                            drawPixel(px, py, !color);
                         }
                     }
                 }
             }
         }
 
-        int charWidth = 6 * scale;
-
-        if ((xOffset + charWidth) >= 128) {
-            xOffset = 0;
-            yOffset += 8 * scale;
-            justChangedLine = true;
-        }
-        else {
-            if (justChangedLine) {
-                if (character != ' ') {
-                    xOffset += charWidth;
+        // Desenha o caractere
+        for (int cx = 0; cx < 5; cx++) {
+            for (int j = 0; j < 7; j++) {
+                uint8_t pixel = (charF[cx] >> j) & 1;
+                if (pixel) {
+                    for (int dx = 0; dx < scale; dx++) {
+                        for (int dy = 0; dy < scale; dy++) {
+                            int16_t px = x + xOffset + (cx * scale) + dx;
+                            int16_t py = y + yOffset + (j * scale) + dy;
+                            drawPixel(px, py, color);
+                        }
+                    }
                 }
-                justChangedLine = false;
-            }
-            else {
-                xOffset += charWidth;
             }
         }
+
+        xOffset += charWidth;
     }
 
     return { xOffset, yOffset + 7 * scale };
 }
-
-stringPos puroPixel_SSD1306::drawBgString(int16_t x, int16_t y, const char* str, uint16_t color, uint16_t bs) {
-    int xOffeset = 0;
-    int yOffeset = 0;
-
-    stringPos r = drawString(x, y, str, color);
-    drawFillRect(x, y, r.x + bs, r.y + bs, !color);
-    stringPos r2 = drawString(x, y, str, color);
-
-    return { r2.x + bs, r2.y + bs }; // y + 7 of the default offeset
-}
-
 
 /*!
 @brief draws an "image" from an bitmap. Kinda complex to use, but not that hard to understand.
@@ -465,43 +473,66 @@ void puroPixel_SSD1306::setBuffer(unsigned char* newBuffer) {
 }
 
 /*!
-@brief scrolling left and right!
+@brief scrolling left or right!
 @note   this function doesn't needs an update().
 @param direction
-    which direction to scroll? 0 = left, 1 = right, 2 = diagonal right, 3 = diagonal left
+    which direction to scroll? SCROLL_LEFT, SCROLL_RIGHT, SCROLL_DIAG_RIGHT, SCROLL_DIAG_LEFT
 @param start
     which row to start? 0 = top, 7 = bottom (recomended 0)
 @param end
     which row to stop? 0 = top, 7 = bottom (recomended 7)
 @param speed
-    scroll speed. 0 = slowest, 7 = fastest i.g
+    scroll speed. SPEED_256_FRAMES = slowest, SPEED_2_FRAMES = fastest i.g
 */
-void puroPixel_SSD1306::startScroll(int16_t direction, uint8_t start, uint8_t end, uint8_t speed) {
+void puroPixel_SSD1306::startScroll(ScrollDirection direction, uint8_t start, uint8_t end, ScrollSpeed speed) {
+    stopScroll(); // Sempre parar qualquer scroll ativo
 
+    if (direction == SCROLL_DIAG_LEFT || direction == SCROLL_DIAG_RIGHT) {
+        // 1. Configura área de scroll vertical antes de tudo
+        transmit_command(SSD1306_SET_VERTICAL_SCROLL_AREA);
+        transmit_command(0x00);    // Área fixa no topo
+        transmit_command(height);  // Área que vai rolar
 
-    transmit_command(SSD1306_SET_VERTICAL_SCROLL_AREA);
-    transmit_command(0x00);
-    transmit_command(height);
-    if (direction == 3) {
-        transmit_command(SSD1306_VERTICAL_AND_LEFT_HORIZONTAL_SCROLL);
-    }
-    else if (direction == 2) {
-        transmit_command(SSD1306_VERTICAL_AND_RIGHT_HORIZONTAL_SCROLL);
-    }
-    else if (direction == 1) {
-        transmit_command(SSD1306_RIGHT_HORIZONTAL_SCROLL);
+        // 2. Escolhe tipo de scroll
+        if (direction == SCROLL_DIAG_LEFT) {
+            transmit_command(SSD1306_VERTICAL_AND_LEFT_HORIZONTAL_SCROLL);
+        }
+        else {
+            transmit_command(SSD1306_VERTICAL_AND_RIGHT_HORIZONTAL_SCROLL);
+        }
+
+        // 3. Argumentos do scroll diagonal
+        transmit_command(0x00);  // Dummy
+        transmit_command(start); // Página inicial
+        transmit_command(speed); // Velocidade
+        transmit_command(end);   // Página final
+        transmit_command(0x01);  // Vertical offset (mínimo 1 pra se mover)
+        transmit_command(0xFF);  // Dummy
+
+        // 4. Ativa o scroll
+        transmit_command(SSD1306_ACTIVATE_SCROLL);
     }
     else {
-        transmit_command(SSD1306_LEFT_HORIZONTAL_SCROLL);
+        // Scroll horizontal simples
+        if (direction == SCROLL_RIGHT) {
+            transmit_command(SSD1306_RIGHT_HORIZONTAL_SCROLL);
+        }
+        else {
+            transmit_command(SSD1306_LEFT_HORIZONTAL_SCROLL);
+        }
+
+        // Argumentos do scroll horizontal
+        transmit_command(0x00);  // Dummy
+        transmit_command(start); // Página inicial
+        transmit_command(speed); // Velocidade
+        transmit_command(end);   // Página final
+        transmit_command(0x00);  // Dummy
+        transmit_command(0xFF);  // Dummy
+
+        transmit_command(SSD1306_ACTIVATE_SCROLL);
     }
-    transmit_command(0x00); // Dummy byte
-    transmit_command(start); // Start page (0 = top)
-    transmit_command(speed); // Scroll speed (higher is slower) // 0x07 fastest i.g
-    transmit_command(end); // End page (7 = bottom)
-    transmit_command(0x00); // Dummy byte
-    transmit_command(0xFF); // Dummy byte
-    transmit_command(0x2F); // Activate scroll
 }
+
 
 
 /*!

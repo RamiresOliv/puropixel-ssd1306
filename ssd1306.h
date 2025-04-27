@@ -27,12 +27,38 @@
 #define SSD1306_SETVCOMDETECT       0xDB 
 #define SSD1306_SETSTARTLINE        0x40 
 #define SSD1306_DISABLE_SCROLL      0x2E
+#define SSD1306_ACTIVATE_SCROLL     0x2F
 
 #define SSD1306_RIGHT_HORIZONTAL_SCROLL 0x26              ///< Init rt scroll
 #define SSD1306_LEFT_HORIZONTAL_SCROLL 0x27               ///< Init left scroll
 #define SSD1306_VERTICAL_AND_RIGHT_HORIZONTAL_SCROLL 0x29 ///< Init diag scroll
 #define SSD1306_VERTICAL_AND_LEFT_HORIZONTAL_SCROLL 0x2A  ///< Init diag scroll
 #define SSD1306_SET_VERTICAL_SCROLL_AREA 0xA3             ///< Set scroll range
+
+enum ScrollDirection {
+    SCROLL_LEFT,
+    SCROLL_RIGHT,
+    SCROLL_DIAG_RIGHT,
+    SCROLL_DIAG_LEFT
+};
+
+
+enum PixelState {
+    PIXEL_OFF = 0,
+    PIXEL_ON = 1,
+};
+
+enum ScrollSpeed {
+    SPEED_5_FRAMES = 0x00,
+    SPEED_64_FRAMES = 0x01,
+    SPEED_128_FRAMES = 0x02,
+    SPEED_256_FRAMES = 0x03,
+    SPEED_3_FRAMES = 0x04,
+    SPEED_4_FRAMES = 0x05,
+    SPEED_25_FRAMES = 0x06,
+    SPEED_2_FRAMES = 0x07
+};
+
 
 struct stringPos {
     int x;
@@ -56,13 +82,13 @@ public:
     void drawVerLine(int16_t x, int16_t y, int16_t h, int16_t color = 1);
     void drawPixel(int16_t x, int16_t y, uint16_t color = 1);
     //stringPos drawString(int16_t x, int16_t y, const char* str, uint16_t color = 1);
-    stringPos drawString(int16_t x, int16_t y, const char* str, uint8_t scale = 1, uint16_t color = 1);
-    stringPos drawBgString(int16_t x, int16_t y, const char* str, uint16_t color = 1, uint16_t borderSize = 0);
+    stringPos drawString(int16_t x, int16_t y, const char* str, uint8_t scale = 1, uint16_t color = 1, bool textBg = false, bool textWrap = true);
+    //stringPos drawBgString(int16_t x, int16_t y, const char* str, uint8_t scale = 1, uint16_t color = 1, uint16_t borderSize = 0);
     void drawBitmap(int16_t x, int16_t y, const uint8_t bitmap[], int16_t w, int16_t h, uint16_t color = 1);
     void drawCircle(int16_t x, int16_t y, int16_t r, int16_t a = 0.1, uint16_t color = 1);
     void drawFillCircle(int16_t x, int16_t y, int16_t r, uint16_t color = 1);
     void stopScroll(bool update = true);
-    void startScroll(int16_t direction = 1, uint8_t start = 0, uint8_t end = 7, uint8_t speed = 7);
+    void startScroll(ScrollDirection direction = SCROLL_LEFT, uint8_t start = 0, uint8_t end = 7, ScrollSpeed speed = SPEED_2_FRAMES);
     void invert();
 private:
     uint8_t width, height;
